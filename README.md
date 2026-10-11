@@ -16,8 +16,8 @@ Card Reader (hardware)          Card Simulator (web UI)
          (registered? active? user?)
                         |
                         v
-           JSON file database (data/store.json)
-              users | cards | access_logs
+                 SQLite (backend/data/campus.db)
+              users | cards | access_logs | passes
                         |
                         v
               Admin dashboard (React)
@@ -31,7 +31,7 @@ Card Reader (hardware)          Card Simulator (web UI)
 | Hardware / simulator | Send `cardId`; each reader also sends fixed `gate` + sensed `direction` |
 | `POST /api/access/scan` | Single entry point for every scan |
 | `accessService.js` | All GRANTED/DENIED rules in one place (easy to explain in viva) |
-| JSON store (`backend/data/store.json`) | Persistent users, cards, and **every access attempt** (simple for MVP; can swap to SQLite/MySQL later) |
+| **SQLite** (`backend/data/campus.db`) | Relational DB with schema in `backend/data/schema.sql`; Node built-in driver (no npm DB server) |
 | Admin UI | Manage cards and review logs (not used by the reader) |
 
 ## Project structure
@@ -41,7 +41,9 @@ campus-flow/
 ├── README.md
 ├── backend/
 │   ├── package.json
-│   ├── data/                 # store.json (created on first run)
+│   ├── data/
+│   │   ├── campus.db         # SQLite (created on first run)
+│   │   └── schema.sql        # ER tables for viva / report
 │   └── src/
 │       ├── index.js          # Server + routes mount
 │       ├── db.js             # Schema + seed data
@@ -62,6 +64,19 @@ campus-flow/
             ├── CardSimulator.jsx
             └── AdminDashboard.jsx
 ```
+
+## Database & environment (for submission)
+
+| What | Location |
+|------|-----------|
+| **Live database** | `backend/data/campus.db` (**SQLite**) |
+| **Schema (for report/PPT)** | `backend/data/schema.sql` |
+| **Export for guide** | `cp backend/data/campus.db backend/data/export/campus-export.db` |
+| **Env template** | `backend/.env.example` → `backend/.env` (optional; only `PORT`) |
+
+No separate MySQL/Postgres install — SQLite is a single file, standard for college projects and easy to open in [DB Browser for SQLite](https://sqlitebrowser.org/).
+
+Details: `backend/data/export/README.md`
 
 ## Setup (no npm install needed)
 
@@ -186,4 +201,4 @@ Optional later: buzzer/green LED on GRANTED, small screen showing `passCode` at 
 
 ## Reset demo database
 
-Stop the server, delete `backend/data/store.json`, restart — seed runs again.
+Stop the server, delete `backend/data/campus.db`, restart — schema + seed run again.

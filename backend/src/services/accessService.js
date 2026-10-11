@@ -5,7 +5,8 @@ import {
   findActivePassForUser,
   findCardByCardId,
   findUserById,
-  getStore,
+  listAccessLogs,
+  listActivePasses as listActivePassesDb,
 } from '../db.js';
 
 const CARD_ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
@@ -93,10 +94,6 @@ function grant(cardId, userId, gate, direction, user, pass = null) {
   };
 }
 
-/**
- * Card reader → software. Hardware sends cardId (+ gate/direction configured per device).
- * Replaces manual register + paper pass at hostel and pass check at main gate.
- */
 export function processScan(cardId, context) {
   const { gate, direction } = context;
   const card = findCardByCardId(cardId);
@@ -113,7 +110,6 @@ export function processScan(cardId, context) {
 
   const activePass = findActivePassForUser(card.userId);
 
-  // --- Hostel gate: issue digital pass (replaces manual pass page) ---
   if (gate === 'HOSTEL' && direction === 'OUT') {
     if (activePass) {
       return deny(
@@ -141,7 +137,6 @@ export function processScan(cardId, context) {
     return grant(cardId, card.userId, gate, direction, user, null);
   }
 
-  // --- Main gate: second level — must have pass issued at hostel ---
   if (gate === 'MAIN' && direction === 'OUT') {
     if (!activePass) {
       return deny(
@@ -164,32 +159,9 @@ export function processScan(cardId, context) {
 }
 
 export function listRecentAccessLogs(limit = 50) {
-  const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
-  const s = getStore();
-  return [...s.access_logs]
-    .sort((a, b) => b.id - a.id)
-    .slice(0, safeLimit)
-    .map((log) => {
-      const user = log.userId ? findUserById(log.userId) : null;
-      return {
-        ...log,
-        userName: user?.name ?? null,
-        department: user?.department ?? null,
-      };
-    });
+  return listAccessLogs(limit);
 }
 
 export function listActivePasses() {
-  const s = getStore();
-  const now = Date.now();
-  return s.passes
-    .filter((p) => p.status === 'ACTIVE' && new Date(p.validUntil).getTime() > now)
-    .map((p) => {
-      const user = findUserById(p.userId);
-      return {
-        ...p,
-        userName: user?.name ?? null,
-      };
-    })
-    .sort((a, b) => b.id - a.id);
+  return listActivePassesDb();
 }

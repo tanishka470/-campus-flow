@@ -1,4 +1,12 @@
-import { findUserById, getStore, persist } from './db.js';
+import {
+  cardIdExists,
+  findCardByInternalId,
+  findUserById,
+  insertCardRecord,
+  listCardsWithHolder,
+  listUsers,
+  updateCardActiveFlag,
+} from './db.js';
 import {
   listActivePasses,
   listRecentAccessLogs,
@@ -28,19 +36,11 @@ export function handleAccessScan(body) {
 }
 
 export function handleListUsers() {
-  const { users } = getStore();
-  return { status: 200, body: [...users].sort((a, b) => a.id - b.id) };
+  return { status: 200, body: listUsers() };
 }
 
 export function handleListCards() {
-  const s = getStore();
-  const cards = [...s.cards]
-    .sort((a, b) => a.id - b.id)
-    .map((c) => {
-      const user = findUserById(c.userId);
-      return { ...c, userName: user?.name, department: user?.department };
-    });
-  return { status: 200, body: cards };
+  return { status: 200, body: listCardsWithHolder() };
 }
 
 export function handleCreateCard(body) {
@@ -55,21 +55,12 @@ export function handleCreateCard(body) {
   if (!findUserById(userId)) {
     return { status: 404, body: { error: 'User not found' } };
   }
-  const s = getStore();
-  if (s.cards.some((c) => c.cardId === validation.value)) {
+  if (cardIdExists(validation.value)) {
     return { status: 409, body: { error: 'Card ID already registered' } };
   }
   const active =
     body?.active === undefined ? true : body.active === true || body.active === 1;
-  const card = {
-    id: s.nextId.cards++,
-    cardId: validation.value,
-    userId,
-    active,
-    createdAt: new Date().toISOString(),
-  };
-  s.cards.push(card);
-  persist();
+  const card = insertCardRecord({ cardId: validation.value, userId, active });
   return { status: 201, body: card };
 }
 
@@ -81,14 +72,11 @@ export function handlePatchCardActive(idStr, body) {
   if (typeof body?.active !== 'boolean') {
     return { status: 400, body: { error: 'active must be a boolean' } };
   }
-  const s = getStore();
-  const card = s.cards.find((c) => c.id === id);
-  if (!card) {
+  if (!findCardByInternalId(id)) {
     return { status: 404, body: { error: 'Card not found' } };
   }
-  card.active = body.active;
-  persist();
-  return { status: 200, body: { ...card } };
+  const card = updateCardActiveFlag(id, body.active);
+  return { status: 200, body: card };
 }
 
 export function handleAccessLogs(query) {

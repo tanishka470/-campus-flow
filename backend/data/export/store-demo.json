@@ -1,0 +1,87 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "name": "Aarav Sharma",
+      "department": "Computer Science",
+      "email": "aarav@college.edu"
+    },
+    {
+      "id": 2,
+      "name": "Priya Patel",
+      "department": "Electronics",
+      "email": "priya@college.edu"
+    },
+    {
+      "id": 3,
+      "name": "Rohan Mehta",
+      "department": "Mechanical",
+      "email": "rohan@college.edu"
+    }
+  ],
+  "cards": [
+    {
+      "id": 1,
+      "cardId": "CARD-1001",
+      "userId": 1,
+      "active": true,
+      "createdAt": "2026-10-11T12:05:27.241Z"
+    },
+    {
+      "id": 2,
+      "cardId": "CARD-1002",
+      "userId": 2,
+      "active": false,
+      "createdAt": "2026-10-11T12:05:27.241Z"
+    },
+    {
+      "id": 3,
+      "cardId": "CARD-1003",
+      "userId": 3,
+      "active": true,
+      "createdAt": "2026-10-11T12:05:27.241Z"
+    }
+  ],
+  "access_logs": [
+    {
+      "id": 1,
+      "cardId": "CARD-1001",
+      "userId": 1,
+      "status": "GRANTED",
+      "reason": null,
+      "gate": "HOSTEL",
+      "direction": "OUT",
+      "passCode": "PASS-A3D429",
+      "timestamp": "2026-10-11T12:05:32.554Z"
+    },
+    {
+      "id": 2,
+      "cardId": "CARD-1001",
+      "userId": 1,
+      "status": "DENIED",
+      "reason": "Exit pass already active — return first or close at hostel IN",
+      "gate": "HOSTEL",
+      "direction": "OUT",
+      "passCode": null,
+      "timestamp": "2026-10-11T12:09:42.651Z"
+    }
+  ],
+  "passes": [
+    {
+      "id": 1,
+      "passCode": "PASS-A3D429",
+      "userId": 1,
+      "cardId": "CARD-1001",
+      "issuedAtGate": "HOSTEL",
+      "issuedAt": "2026-10-11T12:05:32.553Z",
+      "validUntil": "2026-10-12T12:05:32.553Z",
+      "status": "ACTIVE"
+    }
+  ],
+  "nextId": {
+    "users": 4,
+    "cards": 4,
+    "access_logs": 3,
+    "passes": 2
+  }
+}
