@@ -65,6 +65,48 @@ campus-flow/
             └── AdminDashboard.jsx
 ```
 
+## Code layout (layers)
+
+```
+backend/src/
+  routes/apiRouter.js      → HTTP path → controller (no business logic)
+  controllers/             → parse request, call service, return { success, data }
+  services/                → business rules (scan, cards, admin auth)
+  repositories/            → SQLite queries only
+  public/apiClient.js      → frontend API calls (separate from UI)
+  public/app.js            → UI only
+```
+
+### Uniform API response
+
+Success:
+
+```json
+{ "success": true, "data": { ... }, "meta": { "page": 1, "limit": 20, "total": 3, "totalPages": 1 } }
+```
+
+Error:
+
+```json
+{ "success": false, "error": { "code": "UNAUTHORIZED", "message": "Admin login required" } }
+```
+
+HTTP status: `200/201` OK · `400` validation · `401` auth · `404` not found · `409` conflict · `500` server
+
+### Admin auth (SQLite + scrypt hashing)
+
+| Endpoint | Auth |
+|----------|------|
+| `POST /api/access/scan` | Public (gate reader) |
+| `POST /api/admin/login` | Public |
+| `GET /api/users`, `/api/cards`, logs, passes, register card | `Authorization: Bearer <token>` |
+
+Default admin (first run): see `backend/.env.example`. Passwords stored as **scrypt** hashes in `admins` table.
+
+### Pagination (read APIs)
+
+Query: `?page=1&limit=20` on `GET /api/users`, `/api/cards`, `/api/access-logs`, `/api/passes/active`.
+
 ## Database & environment (for submission)
 
 | What | Location |
@@ -72,7 +114,7 @@ campus-flow/
 | **Live database** | `backend/data/campus.db` (**SQLite**) |
 | **Schema (for report/PPT)** | `backend/data/schema.sql` |
 | **Export for guide** | `cp backend/data/campus.db backend/data/export/campus-export.db` |
-| **Env template** | `backend/.env.example` → `backend/.env` (optional; only `PORT`) |
+| **Env template** | `backend/.env.example` → `backend/.env` (`PORT`, admin credentials) |
 
 No separate MySQL/Postgres install — SQLite is a single file, standard for college projects and easy to open in [DB Browser for SQLite](https://sqlitebrowser.org/).
 

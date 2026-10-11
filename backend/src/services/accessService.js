@@ -1,13 +1,8 @@
-import {
-  appendAccessLog,
-  closeActivePassForUser,
-  createPass,
-  findActivePassForUser,
-  findCardByCardId,
-  findUserById,
-  listAccessLogs,
-  listActivePasses as listActivePassesDb,
-} from '../db.js';
+import * as accessLogRepo from '../repositories/accessLogRepository.js';
+import * as cardRepo from '../repositories/cardRepository.js';
+import * as passRepo from '../repositories/passRepository.js';
+import * as userRepo from '../repositories/userRepository.js';
+import { AppError } from '../utils/response.js';
 
 const CARD_ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
 const GATES = new Set(['HOSTEL', 'MAIN']);
@@ -16,46 +11,38 @@ const PASS_VALID_HOURS = 24;
 
 export function validateCardId(cardId) {
   if (typeof cardId !== 'string') {
-    return { ok: false, error: 'cardId must be a string' };
+    throw new AppError(400, 'INVALID_CARD_ID', 'cardId must be a string');
   }
   const trimmed = cardId.trim();
   if (trimmed.length === 0) {
-    return { ok: false, error: 'cardId is required' };
+    throw new AppError(400, 'MISSING_CARD_ID', 'cardId is required');
   }
   if (!CARD_ID_PATTERN.test(trimmed)) {
-    return { ok: false, error: 'cardId has invalid format' };
+    throw new AppError(400, 'INVALID_CARD_FORMAT', 'cardId has invalid format');
   }
-  return { ok: true, value: trimmed };
+  return trimmed;
 }
 
 export function validateScanContext(body) {
   const gate = typeof body?.gate === 'string' ? body.gate.trim().toUpperCase() : 'HOSTEL';
   const direction =
     typeof body?.direction === 'string' ? body.direction.trim().toUpperCase() : 'OUT';
-
   if (!GATES.has(gate)) {
-    return { ok: false, error: 'gate must be HOSTEL or MAIN' };
+    throw new AppError(400, 'INVALID_GATE', 'gate must be HOSTEL or MAIN');
   }
   if (!DIRECTIONS.has(direction)) {
-    return { ok: false, error: 'direction must be IN or OUT' };
+    throw new AppError(400, 'INVALID_DIRECTION', 'direction must be IN or OUT');
   }
-  return { ok: true, gate, direction };
+  return { gate, direction };
 }
 
 function userPayload(user) {
-  if (!user) {
-    return null;
-  }
-  return {
-    id: user.id,
-    name: user.name,
-    department: user.department,
-    email: user.email,
-  };
+  if (!user) return null;
+  return { id: user.id, name: user.name, department: user.department, email: user.email };
 }
 
 function deny(cardId, userId, gate, direction, reason, user) {
-  appendAccessLog({
+  accessLogRepo.insertAccessLog({
     cardId,
     userId,
     status: 'DENIED',
@@ -75,7 +62,7 @@ function deny(cardId, userId, gate, direction, reason, user) {
 }
 
 function grant(cardId, userId, gate, direction, user, pass = null) {
-  appendAccessLog({
+  accessLogRepo.insertAccessLog({
     cardId,
     userId,
     status: 'GRANTED',
@@ -96,19 +83,15 @@ function grant(cardId, userId, gate, direction, user, pass = null) {
 
 export function processScan(cardId, context) {
   const { gate, direction } = context;
-  const card = findCardByCardId(cardId);
-
+  const card = cardRepo.findCardByCardId(cardId);
   if (!card) {
     return deny(cardId, null, gate, direction, 'Card not registered', null);
   }
-
-  const user = findUserById(card.userId);
-
+  const user = userRepo.findUserById(card.userId);
   if (!card.active) {
     return deny(cardId, card.userId, gate, direction, 'Card is inactive', user);
   }
-
-  const activePass = findActivePassForUser(card.userId);
+  const activePass = passRepo.findActivePassForUser(card.userId);
 
   if (gate === 'HOSTEL' && direction === 'OUT') {
     if (activePass) {
@@ -121,7 +104,7 @@ export function processScan(cardId, context) {
         user
       );
     }
-    const pass = createPass({
+    const pass = passRepo.createPassRecord({
       userId: card.userId,
       cardId,
       issuedAtGate: 'HOSTEL',
@@ -131,9 +114,7 @@ export function processScan(cardId, context) {
   }
 
   if (gate === 'HOSTEL' && direction === 'IN') {
-    if (activePass) {
-      closeActivePassForUser(card.userId, 'RETURNED_HOSTEL');
-    }
+    if (activePass) passRepo.closeActivePass(card.userId, 'RETURNED_HOSTEL');
     return grant(cardId, card.userId, gate, direction, user, null);
   }
 
@@ -156,12 +137,4 @@ export function processScan(cardId, context) {
   }
 
   return deny(cardId, card.userId, gate, direction, 'Unhandled scan', user);
-}
-
-export function listRecentAccessLogs(limit = 50) {
-  return listAccessLogs(limit);
-}
-
-export function listActivePasses() {
-  return listActivePassesDb();
 }

@@ -1,3 +1,5 @@
+import { api, adminLogin, adminLogout, getAdminToken } from './apiClient.js';
+
 const FLOW_STEPS = [
   { gate: 'HOSTEL', direction: 'OUT', label: 'Hostel exit' },
   { gate: 'MAIN', direction: 'OUT', label: 'Main exit' },
@@ -12,22 +14,12 @@ let state = {
   direction: 'OUT',
   scanResult: null,
   scanError: '',
+  adminUser: null,
   admin: { users: [], cards: [], logs: [], passes: [], error: '', lastSynced: null },
   newCardId: '',
   newUserId: '',
+  loginError: '',
 };
-
-async function api(path, options = {}) {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data.error || `HTTP ${res.status}`);
-  }
-  return data;
-}
 
 function fmtTime(iso) {
   try {
@@ -48,24 +40,36 @@ function statusLabel(status) {
 }
 
 async function loadAdmin() {
+  if (!getAdminToken()) {
+    state.admin.error = '';
+    render();
+    return;
+  }
   try {
-    const [users, cards, logs, passes] = await Promise.all([
-      api('/api/users'),
-      api('/api/cards'),
-      api('/api/access-logs?limit=40'),
-      api('/api/passes/active'),
+    const [usersRes, cardsRes, logsRes, passesRes, meRes] = await Promise.all([
+      api('/api/users?page=1&limit=50'),
+      api('/api/cards?page=1&limit=50'),
+      api('/api/access-logs?page=1&limit=40'),
+      api('/api/passes/active?page=1&limit=50'),
+      api('/api/admin/me'),
     ]);
-    state.admin.users = users;
-    state.admin.cards = cards;
-    state.admin.logs = logs;
-    state.admin.passes = passes;
+    state.admin.users = usersRes.data;
+    state.admin.cards = cardsRes.data;
+    state.admin.logs = logsRes.data;
+    state.admin.passes = passesRes.data;
+    state.adminUser = meRes.data.admin;
     state.admin.error = '';
     state.admin.lastSynced = new Date();
-    if (!state.newUserId && users.length) {
-      state.newUserId = String(users[0].id);
+    if (!state.newUserId && state.admin.users.length) {
+      state.newUserId = String(state.admin.users[0].id);
     }
   } catch (e) {
-    state.admin.error = e.message;
+    if (e.status === 401) {
+      state.adminUser = null;
+      state.admin.error = 'Please sign in to view admin data.';
+    } else {
+      state.admin.error = e.message;
+    }
   }
   render();
 }
@@ -75,19 +79,36 @@ async function doScan(cardId, gate, direction) {
   state.scanResult = null;
   render();
   try {
-    const data = await api('/api/access/scan', {
+    const json = await api('/api/access/scan', {
       method: 'POST',
       body: JSON.stringify({ cardId, gate, direction }),
     });
     state.cardId = cardId;
     state.gate = gate;
     state.direction = direction;
-    state.scanResult = data;
-    await loadAdmin();
+    state.scanResult = json.data;
+    if (getAdminToken()) {
+      await loadAdmin();
+    }
   } catch (e) {
     state.scanError = e.message;
     render();
   }
+}
+
+function renderLoginPanel() {
+  return `
+    <div class="panel">
+      <h2 class="panel-title">Admin sign in</h2>
+      <p class="panel-desc">College staff only. Gate scans work without login.</p>
+      ${state.loginError ? `<p class="error-text">${esc(state.loginError)}</p>` : ''}
+      <label for="login-user">Username</label>
+      <input id="login-user" value="admin@college.edu" autocomplete="username" />
+      <label for="login-pass">Password</label>
+      <input id="login-pass" type="password" autocomplete="current-password" />
+      <button type="button" class="btn btn-primary" id="btn-login">Sign in</button>
+      <p class="panel-desc" style="margin-top:1rem">Default (change in .env): admin@college.edu / CampusAdmin@2026</p>
+    </div>`;
 }
 
 function renderSimulator() {
@@ -119,7 +140,7 @@ function renderSimulator() {
   el.innerHTML = `
     <div class="panel">
       <h2 class="panel-title">Gate terminal</h2>
-      <p class="panel-desc">Use this to simulate the card reader. Each approved scan is recorded in Admin office.</p>
+      <p class="panel-desc">Simulates the card reader (public API — no admin login).</p>
       <label for="inp-card">Card number</label>
       <input id="inp-card" value="${esc(state.cardId)}" autocomplete="off" />
       <div class="form-row">
@@ -161,23 +182,38 @@ function renderSimulator() {
   el.querySelector('#btn-scan').onclick = () =>
     doScan(state.cardId.trim(), state.gate, state.direction);
   el.querySelectorAll('[data-step]').forEach((btn) => {
-    btn.onclick = () =>
-      doScan(state.cardId.trim(), btn.dataset.step, btn.dataset.dir);
+    btn.onclick = () => doScan(state.cardId.trim(), btn.dataset.step, btn.dataset.dir);
   });
 }
 
 function renderAdmin() {
+  const el = document.getElementById('panel-admin');
+  if (!getAdminToken()) {
+    el.innerHTML = renderLoginPanel();
+    el.querySelector('#btn-login').onclick = async () => {
+      state.loginError = '';
+      try {
+        const user = document.getElementById('login-user').value;
+        const pass = document.getElementById('login-pass').value;
+        await adminLogin(user, pass);
+        await loadAdmin();
+      } catch (e) {
+        state.loginError = e.message;
+        render();
+      }
+    };
+    return;
+  }
+
   const a = state.admin;
   const latest = a.logs[0];
-  const el = document.getElementById('panel-admin');
 
   el.innerHTML = `
     <div class="panel live-panel">
       <div class="live-panel-header">
         <h2 class="panel-title">Today&apos;s gate register</h2>
-        ${a.lastSynced ? `<span class="sync-hint">Last updated ${esc(fmtTime(a.lastSynced.toISOString()))}</span>` : ''}
+        <span class="sync-hint">${state.adminUser ? esc(state.adminUser.name) : ''} · <button type="button" class="btn btn-text" id="btn-logout">Sign out</button></span>
       </div>
-      <p class="panel-desc" style="margin-bottom:0.5rem">Latest card read at any gate.</p>
       ${a.error ? `<p class="error-text">${esc(a.error)}</p>` : ''}
       ${
         latest
@@ -186,28 +222,21 @@ function renderAdmin() {
         <span class="entry-main">${esc(latest.userName || '—')} · ${esc(latest.cardId)}</span>
         <span class="entry-sub">${esc(latest.gate)} · ${latest.direction === 'OUT' ? 'Exit' : 'Entry'} · ${esc(fmtTime(latest.timestamp))}</span>
       </div>`
-          : '<p class="empty-hint">No entries yet. Submit a scan from Gate terminal.</p>'
+          : '<p class="empty-hint">No entries yet.</p>'
       }
     </div>
     <div class="grid-2">
-      <div class="panel">
-        <h2 class="panel-title">Students</h2>
-        <div class="table-wrap">${usersTable(a.users)}</div>
-      </div>
-      <div class="panel">
-        <h2 class="panel-title">ID cards</h2>
-        <div class="table-wrap">${cardsSection(a)}</div>
-      </div>
-      <div class="panel" style="grid-column:1/-1">
-        <h2 class="panel-title">Active exit passes</h2>
-        <p class="panel-desc">Issued at hostel; required at main gate.</p>
-        <div class="table-wrap">${passesTable(a.passes)}</div>
-      </div>
-      <div class="panel" style="grid-column:1/-1">
-        <h2 class="panel-title">Access register</h2>
-        <div class="table-wrap">${logsTable(a.logs)}</div>
-      </div>
+      <div class="panel"><h2 class="panel-title">Students</h2><div class="table-wrap">${usersTable(a.users)}</div></div>
+      <div class="panel"><h2 class="panel-title">ID cards</h2><div class="table-wrap">${cardsSection(a)}</div></div>
+      <div class="panel" style="grid-column:1/-1"><h2 class="panel-title">Active exit passes</h2><div class="table-wrap">${passesTable(a.passes)}</div></div>
+      <div class="panel" style="grid-column:1/-1"><h2 class="panel-title">Access register</h2><div class="table-wrap">${logsTable(a.logs)}</div></div>
     </div>`;
+
+  el.querySelector('#btn-logout').onclick = async () => {
+    await adminLogout();
+    state.adminUser = null;
+    render();
+  };
 
   el.querySelectorAll('[data-toggle]').forEach((btn) => {
     btn.onclick = async () => {
@@ -267,40 +296,28 @@ function cardsSection(a) {
   <div class="subsection">
     <h3>Issue new card</h3>
     <form id="form-card" class="form-inline">
-      <div>
-        <label for="newCardId">Card number</label>
-        <input id="newCardId" placeholder="CARD-2001" value="${esc(state.newCardId)}" required />
-      </div>
-      <div>
-        <label for="newUserId">Student</label>
-        <select id="newUserId">${a.users.map((u) => `<option value="${u.id}" ${String(u.id) === state.newUserId ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>
-      </div>
+      <div><label for="newCardId">Card number</label><input id="newCardId" placeholder="CARD-2001" value="${esc(state.newCardId)}" required /></div>
+      <div><label for="newUserId">Student</label><select id="newUserId">${a.users.map((u) => `<option value="${u.id}" ${String(u.id) === state.newUserId ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></div>
       <button type="submit" class="btn btn-primary">Save</button>
     </form>
   </div>`;
 }
 
 function passesTable(passes) {
-  if (!passes.length) {
-    return '<p class="empty-hint">No passes currently active.</p>';
-  }
+  if (!passes.length) return '<p class="empty-hint">No passes currently active.</p>';
   return `<table><thead><tr><th>Pass ID</th><th>Student</th><th>Card</th></tr></thead><tbody>
     ${passes.map((p) => `<tr><td><code>${esc(p.passCode)}</code></td><td>${esc(p.userName)}</td><td>${esc(p.cardId)}</td></tr>`).join('')}
   </tbody></table>`;
 }
 
 function logsTable(logs) {
-  if (!logs.length) {
-    return '<p class="empty-hint">No records yet.</p>';
-  }
+  if (!logs.length) return '<p class="empty-hint">No records yet.</p>';
   return `<table><thead><tr><th>Date &amp; time</th><th>Gate</th><th>Card</th><th>Student</th><th>Decision</th></tr></thead><tbody>
     ${logs
       .map(
         (l, i) => `<tr class="${i === 0 ? 'row-latest' : ''}">
-      <td>${esc(fmtTime(l.timestamp))}</td>
-      <td>${esc(l.gate)} ${l.direction === 'OUT' ? 'Exit' : 'Entry'}</td>
-      <td>${esc(l.cardId)}</td>
-      <td>${esc(l.userName || '—')}</td>
+      <td>${esc(fmtTime(l.timestamp))}</td><td>${esc(l.gate)} ${l.direction === 'OUT' ? 'Exit' : 'Entry'}</td>
+      <td>${esc(l.cardId)}</td><td>${esc(l.userName || '—')}</td>
       <td><span class="badge ${l.status === 'GRANTED' ? 'granted' : 'denied'}">${esc(statusLabel(l.status))}</span></td>
     </tr>`
       )
@@ -326,7 +343,7 @@ document.querySelectorAll('.nav-tab').forEach((tab) => {
 });
 
 setInterval(() => {
-  if (state.tab === 'admin') loadAdmin();
+  if (state.tab === 'admin' && getAdminToken()) loadAdmin();
 }, 4000);
 
-loadAdmin();
+render();

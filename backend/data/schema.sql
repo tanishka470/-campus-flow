@@ -43,3 +43,18 @@ CREATE TABLE IF NOT EXISTS passes (
   status TEXT NOT NULL DEFAULT 'ACTIVE',
   FOREIGN KEY (userId) REFERENCES users(id)
 );
+
+CREATE TABLE IF NOT EXISTS admins (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL UNIQUE,
+  passwordHash TEXT NOT NULL,
+  name TEXT NOT NULL,
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS admin_sessions (
+  token TEXT PRIMARY KEY,
+  adminId INTEGER NOT NULL,
+  expiresAt TEXT NOT NULL,
+  FOREIGN KEY (adminId) REFERENCES admins(id)
+);
